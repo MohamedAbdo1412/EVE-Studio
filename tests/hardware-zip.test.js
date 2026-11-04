@@ -53,6 +53,7 @@ describe('hardware ZIP export', () => {
         'firmware/src/main.cpp',
         'frame/frame.meta',
         'frame/oam.hex',
+        'frame/frame.diagnostics.json',
         'rtl/video/eve_video_timing.sv',
         'rtl/renderer/eve_renderer.sv',
         'rtl/flash/w25q128jv_model.sv',
@@ -80,5 +81,10 @@ describe('hardware ZIP export', () => {
     const manifest = JSON.parse(await loaded.file('Zip-Test/manifest.json').async('string'));
     expect(manifest.schema).toBe('EVE HARDWARE RELEASE 1.0');
     expect(manifest.toolchain.platformio.available).toBe(false);
+    const diagnostics = JSON.parse(
+      await loaded.file('Zip-Test/frame/frame.diagnostics.json').async('string'),
+    );
+    expect(['COMPLETE', 'PARTIAL']).toContain(diagnostics.status);
+    expect(manifest.framePackage.status).toBe(diagnostics.status);
   });
 });

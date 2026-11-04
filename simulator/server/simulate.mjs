@@ -13,6 +13,10 @@ import { runProcess } from './tools.mjs';
 import { parseRom, HEADER_FIELDS } from '../../packages/eve-binary/rom.js';
 import { framePackageFromRom } from '../../packages/eve-binary/framePackage.js';
 import { sha256Hex } from '../../packages/eve-binary/checksums.js';
+import {
+  TEXT_MEMORY_BYTES,
+  validateTextReference,
+} from '../../packages/eve-binary/textMemory.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(HERE, '../..');
@@ -24,9 +28,46 @@ const RENDERER_RTL = path.join('rtl', 'renderer', 'eve_renderer.sv');
 const RENDERER_TB = path.join('testbench', 'tb_eve_frame_capture.sv');
 
 const FRAME_OBJECT_LIMIT = 16;
-const FRAME_TEXT_BYTES = 4096;
+const FRAME_TEXT_BYTES = TEXT_MEMORY_BYTES;
 const FRAME_FONT_BYTES = 4096;
 const MAX_FRAME_PIXELS = 1920 * 1080;
+const RTL_TYPES = new Set([1, 2, 3]);
+const RTL_TYPE_NAMES = { 1: 'RECT', 2: 'BORDER_RECT', 3: 'TEXT' };
+
+const FRAME_SUMMARY_RE =
+  /^FRAME_SUMMARY\s+width=(\d+)\s+height=(\d+)\s+objects=(\d+)\s+visible=(\d+)\s+coverage=(\d+)\s+checks=(\d+)\s+mismatches=(\d+)\s+zero=(\d+)\s+background=(\d+)\s+non_background=(\d+)\s+unique_colors=(\d+)\s+text_trailing=(\d+)\s+text_repeat=(\d+)\s+text_blank=(\d+)\s+glyph_zero=(\d+)\s+checksum=([0-9a-fA-F]+)\s+errors=(\d+)\s*$/m;
+
+function fnv1a64Pixels(pixels) {
+  let checksum = 0n;
+  const prime = 1099511628211n;
+  const mask = (1n << 64n) - 1n;
+  for (let index = 0; index < pixels.length; index += 3) {
+    const color = (pixels[index] << 16) | (pixels[index + 1] << 8) | pixels[index + 2];
+    checksum = ((checksum * prime) ^ BigInt(color)) & mask;
+  }
+  return checksum.toString(16).padStart(16, '0');
+}
+
+function pixelStatistics(pixels, backgroundHex) {
+  const background = Number.parseInt(backgroundHex, 16);
+  const backgroundRgb = background & 0xffffff;
+  const seen = new Set();
+  let zero = 0;
+  let nonBackground = 0;
+  for (let index = 0; index < pixels.length; index += 3) {
+    const color = (pixels[index] << 16) | (pixels[index + 1] << 8) | pixels[index + 2];
+    seen.add(color);
+    if (color === 0) zero += 1;
+    if (color !== backgroundRgb) nonBackground += 1;
+  }
+  return {
+    zero,
+    nonBackground,
+    background: pixels.length / 3 - nonBackground,
+    uniqueColors: seen.size,
+  };
+}
+
 
 function unavailable(tool) {
   return {
@@ -49,6 +90,98 @@ function parseVerdict(log) {
   if (fail) return 'FAIL';
   return 'UNKNOWN';
 }
+
+/**
+ * Parse the frame-capture testbench verdict.
+ *
+ * A bare PASS string is never enough: the log must contain one complete
+ * FRAME_SUMMARY line, zero errors, zero pixel mismatches, sane dimensions and a
+ * checksum that matches the PPM bytes the backend actually read.
+ */
+export function parseFrameVerdict(log, { width, height, checksum: expectedChecksum, zeroPixels, checks }) {
+  const summaryMatch = log.match(FRAME_SUMMARY_RE);
+  if (!summaryMatch) {
+    return {
+      verdict: /^FAIL:/m.test(log) ? 'FAIL' : 'UNKNOWN',
+      reason: 'The capture log did not contain a complete FRAME_SUMMARY.',
+      summary: null,
+    };
+  }
+  const summary = {
+    width: Number(summaryMatch[1]),
+    height: Number(summaryMatch[2]),
+    objects: Number(summaryMatch[3]),
+    visibleObjects: Number(summaryMatch[4]),
+    coverage: Number(summaryMatch[5]),
+    checks: Number(summaryMatch[6]),
+    mismatches: Number(summaryMatch[7]),
+    zeroPixels: Number(summaryMatch[8]),
+    backgroundPixels: Number(summaryMatch[9]),
+    nonBackgroundPixels: Number(summaryMatch[10]),
+    uniqueColors: Number(summaryMatch[11]),
+    textTrailingPixels: Number(summaryMatch[12]),
+    textRepeatPixels: Number(summaryMatch[13]),
+    textBlankPixels: Number(summaryMatch[14]),
+    glyphZeroPixels: Number(summaryMatch[15]),
+    checksum: summaryMatch[16].toLowerCase().padStart(16, '0'),
+    errors: Number(summaryMatch[17]),
+  };
+
+  if (/^FAIL:/m.test(log)) {
+    return { verdict: 'FAIL', reason: 'The testbench reported a failure.', summary };
+  }
+  if (!/^PASS: RTL FUNCTIONAL RENDERER CAPTURE/m.test(log)) {
+    return { verdict: 'UNKNOWN', reason: 'No PASS line for RTL FUNCTIONAL RENDERER CAPTURE.', summary };
+  }
+  if (summary.errors !== 0) {
+    return { verdict: 'FAIL', reason: `The testbench reported ${summary.errors} error(s).`, summary };
+  }
+  if (summary.mismatches !== 0) {
+    return { verdict: 'FAIL', reason: `The reference check found ${summary.mismatches} mismatched pixel(s).`, summary };
+  }
+  if (summary.width !== width || summary.height !== height) {
+    return {
+      verdict: 'FAIL',
+      reason: `Summary dimensions ${summary.width}x${summary.height} do not match the PPM ${width}x${height}.`,
+      summary,
+    };
+  }
+  if (summary.checks !== width * height) {
+    return {
+      verdict: 'FAIL',
+      reason: `Summary checked ${summary.checks} pixels; expected ${width * height}.`,
+      summary,
+    };
+  }
+  if (checks != null && summary.checks !== checks) {
+    return { verdict: 'FAIL', reason: 'Summary pixel count does not match the capture.', summary };
+  }
+  if (summary.checksum !== expectedChecksum) {
+    return {
+      verdict: 'FAIL',
+      reason: `Summary checksum ${summary.checksum} does not match the captured PPM ${expectedChecksum}.`,
+      summary,
+    };
+  }
+  if (zeroPixels != null && summary.zeroPixels !== zeroPixels) {
+    return { verdict: 'FAIL', reason: 'Summary zero-pixel count does not match the captured PPM.', summary };
+  }
+  if (summary.visibleObjects > 0 && summary.zeroPixels === summary.checks) {
+    return { verdict: 'FAIL', reason: 'The capture is entirely black although objects are visible.', summary };
+  }
+  if (summary.visibleObjects > 0 && summary.nonBackgroundPixels === 0) {
+    return { verdict: 'FAIL', reason: 'No non-background pixels were rendered.', summary };
+  }
+  if (summary.coverage !== summary.visibleObjects) {
+    return {
+      verdict: 'FAIL',
+      reason: `Object coverage ${summary.coverage}/${summary.visibleObjects}.`,
+      summary,
+    };
+  }
+  return { verdict: 'PASS', reason: '', summary };
+}
+
 
 async function compileAndRun({
   tools,
@@ -164,7 +297,7 @@ export async function runTimingVerification({
   };
 }
 
-function validateFramePackage(pkg) {
+export function validateFramePackage(pkg) {
   if (!pkg || typeof pkg !== 'object') throw new Error('framePackage object is required');
   for (const key of ['meta', 'oamHex', 'textHex', 'fontHex']) {
     if (typeof pkg[key] !== 'string') throw new Error(`framePackage.${key} must be a string`);
@@ -189,9 +322,27 @@ function validateFramePackage(pkg) {
   if (oamLines.length !== objectCount) {
     throw new Error(`oamHex has ${oamLines.length} objects but frame.meta declares ${objectCount}`);
   }
-  for (const line of oamLines) {
-    if (!/^[0-9a-fA-F]{40}$/.test(line.trim())) {
+  const objectTypes = [];
+  for (let index = 0; index < oamLines.length; index += 1) {
+    const line = oamLines[index].trim();
+    if (!/^[0-9a-fA-F]{40}$/.test(line)) {
       throw new Error('each OAM record must be exactly 40 hex characters (160 bits)');
+    }
+    const word = BigInt(`0x${line}`);
+    const type = Number(word & 0x7n);
+    objectTypes.push(type);
+    if (!RTL_TYPES.has(type)) {
+      throw new Error(
+        `OAM object ${index} has RTL type ${type}. The reference renderer supports only ` +
+          `${[...RTL_TYPES].map((value) => `${value} (${RTL_TYPE_NAMES[value]})`).join(', ')}. ` +
+          'Unsupported objects must be reported by the frame exporter, not packed into OAM.',
+      );
+    }
+    if (type === 3) {
+      const textOffset = Number((word >> 111n) & 0xfffn);
+      const textLength = Number((word >> 123n) & 0xffn);
+      const check = validateTextReference(textOffset, textLength, { label: `OAM text object ${index}` });
+      if (!check.ok) throw new Error(check.error);
     }
   }
 
@@ -202,7 +353,16 @@ function validateFramePackage(pkg) {
   if (countHexBytes(pkg.fontHex) !== FRAME_FONT_BYTES) {
     throw new Error(`fontHex must contain exactly ${FRAME_FONT_BYTES} bytes`);
   }
-  return { width, height, objectCount, background: meta[3].toLowerCase() };
+  const malformed = (text) => text
+    .trim()
+    .split(/\r?\n/)
+    .findIndex((line) => !/^[0-9a-fA-F]{2}$/.test(line.trim()));
+  if (malformed(pkg.textHex) !== -1) throw new Error('textHex contains a non-byte value');
+  if (malformed(pkg.fontHex) !== -1) throw new Error('fontHex contains a non-byte value');
+
+  const diagnostics =
+    pkg.diagnostics && typeof pkg.diagnostics === 'object' ? pkg.diagnostics : null;
+  return { width, height, objectCount, background: meta[3].toLowerCase(), objectTypes, diagnostics };
 }
 
 function parsePpm(bytes) {
@@ -248,6 +408,7 @@ export async function runFrameCapture({
   let pkg = framePackage;
   let romHeader = null;
   let romWarnings = [];
+  let frameDiagnostics = framePackage?.diagnostics ?? null;
   if (!pkg && romBase64) {
     const romBytes = Buffer.from(String(romBase64), 'base64');
     const parsed = parseRom(romBytes, { verifyChecksums: true });
@@ -257,8 +418,15 @@ export async function runFrameCapture({
     const frame = framePackageFromRom(parsed, {
       pageIndex: Number.isInteger(pageIndex) ? pageIndex : undefined,
     });
-    pkg = { meta: frame.meta, oamHex: frame.oamHex, textHex: frame.textHex, fontHex: frame.fontHex };
+    pkg = {
+      meta: frame.meta,
+      oamHex: frame.oamHex,
+      textHex: frame.textHex,
+      fontHex: frame.fontHex,
+      diagnostics: frame.diagnostics,
+    };
     romWarnings = frame.warnings;
+    frameDiagnostics = frame.diagnostics;
     romHeader = {
       format: parsed.header.format,
       width: parsed.header.width,
@@ -276,6 +444,30 @@ export async function runFrameCapture({
   } catch (error) {
     return { ok: false, status: 'BAD_FRAME_PACKAGE', detail: error.message, log: '' };
   }
+  const rawDiagnostics = frameInfo.diagnostics || frameDiagnostics || {};
+  const unsupportedList = Array.isArray(rawDiagnostics.unsupported) ? rawDiagnostics.unsupported : [];
+  const missingAssetList = Array.isArray(rawDiagnostics.missingAssets)
+    ? rawDiagnostics.missingAssets
+    : [];
+  const unsupportedObjectCount = Number.isFinite(Number(rawDiagnostics.unsupportedObjectCount))
+    ? Number(rawDiagnostics.unsupportedObjectCount)
+    : unsupportedList.length;
+  const missingAssetCount = Number.isFinite(Number(rawDiagnostics.missingAssetCount))
+    ? Number(rawDiagnostics.missingAssetCount)
+    : missingAssetList.length;
+  const renderedObjectCount = Number.isFinite(Number(rawDiagnostics.renderedObjectCount))
+    ? Number(rawDiagnostics.renderedObjectCount)
+    : frameInfo.objectCount;
+  const framePackageStatus =
+    unsupportedObjectCount > 0 || missingAssetCount > 0 ? 'PARTIAL' : 'COMPLETE';
+  const diagnostics = {
+    status: framePackageStatus,
+    renderedObjectCount,
+    unsupportedObjectCount,
+    missingAssetCount,
+    unsupported: unsupportedList,
+    missingAssets: missingAssetList,
+  };
   if (frameInfo.objectCount === 0) {
     // Still valid: the renderer outputs the background for every pixel.
   }
@@ -333,6 +525,8 @@ export async function runFrameCapture({
 
     const parsed = parsePpm(first.ppm);
     const pixelSha256 = sha256Hex(parsed.pixels);
+    const statistics = pixelStatistics(parsed.pixels, frameInfo.background);
+    const captureChecksum = fnv1a64Pixels(parsed.pixels);
     let deterministic = null;
     let secondLog = '';
     if (checkDeterminism) {
@@ -353,22 +547,66 @@ export async function runFrameCapture({
     ]
       .filter(Boolean)
       .join('\n');
-    const verdict = first.outcome.run.state === 'timeout' ? 'TIMEOUT' : parseVerdict(first.outcome.run.log);
+    const frameVerdict =
+      first.outcome.run.state === 'timeout'
+        ? { verdict: 'TIMEOUT', reason: 'Simulation exceeded the time limit.', summary: null }
+        : parseFrameVerdict(first.outcome.run.log, {
+            width: parsed.width,
+            height: parsed.height,
+            checksum: captureChecksum,
+            zeroPixels: statistics.zero,
+            checks: parsed.width * parsed.height,
+          });
+    const verdict = frameVerdict.verdict;
+    const captureStatus = verdict === 'PASS' ? diagnostics.status : 'FAILED';
+    const detail =
+      verdict === 'PASS'
+        ? diagnostics.status === 'PARTIAL'
+          ? `Icarus rendered ${parsed.width}x${parsed.height} from HDL in ${first.outcome.run.durationMs} ms. ` +
+            `This is a PARTIAL frame: ${diagnostics.unsupportedObjectCount} unsupported object(s), ` +
+            `${diagnostics.missingAssetCount} missing asset(s).`
+          : `Icarus rendered ${parsed.width}x${parsed.height} from HDL in ${first.outcome.run.durationMs} ms.`
+        : verdict === 'TIMEOUT'
+          ? 'Simulation exceeded the time limit before completing the frame.'
+          : frameVerdict.reason || 'The frame-capture testbench did not produce a complete valid summary.';
     return {
       ok: verdict === 'PASS',
       status: verdict,
-      detail:
-        verdict === 'PASS'
-          ? `Icarus rendered ${parsed.width}x${parsed.height} from HDL in ${first.outcome.run.durationMs} ms.`
-          : 'The frame-capture testbench did not report PASS.',
+      detail,
       width: parsed.width,
       height: parsed.height,
       frame: {
         ...frameInfo,
         objects: frameInfo.objectCount,
+        renderedObjectCount: diagnostics.renderedObjectCount,
+        unsupportedObjectCount: diagnostics.unsupportedObjectCount,
+        missingAssetCount: diagnostics.missingAssetCount,
+        unsupported: diagnostics.unsupported,
+        missingAssets: diagnostics.missingAssets,
+        status: captureStatus,
         pageIndex: Number.isInteger(pageIndex) ? pageIndex : null,
         rom: romHeader,
         warnings: romWarnings,
+      },
+      capture: {
+        status: captureStatus,
+        expectedChecks: statistics.background + statistics.nonBackground,
+        checks: frameVerdict.summary?.checks ?? parsed.width * parsed.height,
+        mismatches: frameVerdict.summary?.mismatches ?? null,
+        zeroPixels: statistics.zero,
+        backgroundPixels: statistics.background,
+        nonBackgroundPixels: statistics.nonBackground,
+        uniqueColors: statistics.uniqueColors,
+        checksum: captureChecksum,
+        errors: frameVerdict.summary?.errors ?? null,
+        coverage: frameVerdict.summary?.coverage ?? null,
+        visibleObjects: frameVerdict.summary?.visibleObjects ?? null,
+        textTrailingPixels: frameVerdict.summary?.textTrailingPixels ?? null,
+        textRepeatPixels: frameVerdict.summary?.textRepeatPixels ?? null,
+        textBlankPixels: frameVerdict.summary?.textBlankPixels ?? null,
+        glyphZeroPixels: frameVerdict.summary?.glyphZeroPixels ?? null,
+        summary: frameVerdict.summary,
+        reason: frameVerdict.reason || null,
       },
       pixels: {
         rgbBase64: Buffer.from(parsed.pixels).toString('base64'),

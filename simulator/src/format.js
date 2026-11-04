@@ -84,6 +84,20 @@ export function shortMiddle(value, head = 10, tail = 8) {
   return `${text.slice(0, head)}…${text.slice(-tail)}`;
 }
 
+const DIAGNOSTICS_FILE = 'frame.diagnostics.json';
+
+function normalizeDiagnostics(value) {
+  if (!value || typeof value !== 'object') return null;
+  return {
+    status: value.status === 'PARTIAL' ? 'PARTIAL' : 'COMPLETE',
+    renderedObjectCount: Number(value.renderedObjectCount) || 0,
+    unsupportedObjectCount: Number(value.unsupportedObjectCount) || 0,
+    missingAssetCount: Number(value.missingAssetCount) || 0,
+    unsupported: Array.isArray(value.unsupported) ? value.unsupported : [],
+    missingAssets: Array.isArray(value.missingAssets) ? value.missingAssets : [],
+  };
+}
+
 export function parseFramePackageJson(text) {
   let data;
   try {
@@ -103,13 +117,17 @@ export function parseFramePackageJson(text) {
     oamHex: pkg.oamHex,
     textHex: pkg.textHex,
     fontHex: pkg.fontHex,
+    diagnostics: normalizeDiagnostics(pkg.diagnostics ?? data?.diagnostics),
   };
 }
 
 export async function framePackageFromFiles(fileList) {
   const files = Array.from(fileList || []);
   if (!files.length) throw new Error('Select frame.meta, oam.hex, text.hex and font.hex.');
-  const jsonFile = files.find((file) => /\.json$/i.test(file.name));
+  // frame.diagnostics.json is optional metadata, not the package itself.
+  const jsonFile = files.find(
+    (file) => /\.json$/i.test(file.name) && file.name.toLowerCase() !== DIAGNOSTICS_FILE,
+  );
   if (jsonFile) return parseFramePackageJson(await jsonFile.text());
 
   const byName = new Map(files.map((file) => [file.name.toLowerCase(), file]));
@@ -118,11 +136,21 @@ export async function framePackageFromFiles(fileList) {
   if (missing.length) {
     throw new Error(`Frame package is missing: ${missing.join(', ')}.`);
   }
+  let diagnostics = null;
+  const diagnosticsFile = byName.get(DIAGNOSTICS_FILE);
+  if (diagnosticsFile) {
+    try {
+      diagnostics = normalizeDiagnostics(JSON.parse(await diagnosticsFile.text()));
+    } catch (error) {
+      throw new Error(`Frame diagnostics file is invalid: ${error.message}`);
+    }
+  }
   return {
     meta: await byName.get('frame.meta').text(),
     oamHex: await byName.get('oam.hex').text(),
     textHex: await byName.get('text.hex').text(),
     fontHex: await byName.get('font.hex').text(),
+    diagnostics,
   };
 }
 

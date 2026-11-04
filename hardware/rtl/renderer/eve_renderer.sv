@@ -8,7 +8,14 @@
 // Supported object types:
 //   1  RECT          solid filled rectangle
 //   2  BORDER_RECT   filled rectangle with an inset stroke ring
-//   3  TEXT          8x8 glyphs from the A8 atlas, glyph indices in text RAM
+//   3  TEXT          single row of 8x8 A8 glyphs, glyph indices in text RAM
+//
+// Unsupported by this version (reported by the frame packer, never silently
+// flattened into rectangles): IMAGE, VIDEO, ROUND_RECT, CIRCLE, LINE and GROUP.
+//
+// The text RAM is 4096 bytes. Object records carry a 12-bit text offset and an
+// 8-bit glyph count; the host packer/ROM validator rejects references outside
+// those limits instead of masking them.
 //
 // Throughput: one pixel per (object_count + 2) clocks. This is a functional
 // reference core for simulation and frame capture. It is NOT a real-time
@@ -136,7 +143,13 @@ module eve_renderer #(
         begin
             cell_y = ((glyph >> 4) * GLYPH_SIZE) + ly;
             cell_x = ((glyph & 8'h0f) * GLYPH_SIZE) + lx;
-            atlas_byte = font_mem[cell_y * ATLAS_WIDTH + cell_x];
+            // The built-in atlas contains 64 8x8 cells (4 rows). A glyph index
+            // outside that range has no cell; render it as fully transparent.
+            if ((glyph < 8'd64) && (cell_y < (FONT_BYTES / ATLAS_WIDTH)) &&
+                (cell_x < ATLAS_WIDTH))
+                atlas_byte = font_mem[cell_y * ATLAS_WIDTH + cell_x];
+            else
+                atlas_byte = 8'd0;
         end
     endfunction
 
@@ -215,20 +228,25 @@ module eve_renderer #(
                                         end
                                     end
                                     TYPE_TEXT: begin
+                                        // Text is a single row of 8x8 glyph cells.
+                                        // The glyph-index byte is an A8 alpha sample:
+                                        // any nonzero value paints the text color.
+                                        // No fallback glyph is substituted, so cells
+                                        // after text_length and rows below gy==0 keep
+                                        // the already-composited lower-layer pixel.
                                         text_offset = obj[122:111];
                                         text_length = obj[130:123];
                                         gx = local_x >> 3;
                                         gy = local_y >> 3;
-                                        if (gx < text_length) begin
+                                        if ((gy == 0) && (gx < text_length) &&
+                                            ((text_offset + gx) < TEXT_BYTES)) begin
                                             glyph = text_mem[text_offset + gx];
-                                        end else begin
-                                            glyph = 8'd0;
-                                        end
-                                        row_byte = atlas_byte(glyph, local_x & 7, local_y & 7);
-                                        if (row_byte[7 - (local_x & 7)]) begin
-                                            cur_r <= obj[70:63];
-                                            cur_g <= obj[62:55];
-                                            cur_b <= obj[54:47];
+                                            row_byte = atlas_byte(glyph, local_x & 7, local_y & 7);
+                                            if (row_byte != 8'd0) begin
+                                                cur_r <= obj[70:63];
+                                                cur_g <= obj[62:55];
+                                                cur_b <= obj[54:47];
+                                            end
                                         end
                                     end
                                     default: begin

@@ -106,8 +106,21 @@ export default function FrameTab({ hdlReady }) {
     downloadBytes(ppm, `eve-frame-${data.width}x${data.height}.ppm`, 'image/x-portable-pixmap');
   };
 
+  const captureStatus = data?.capture?.status || data?.status;
   const verdictTone =
-    data?.status === 'PASS' ? 'ok' : data?.status === 'UNAVAILABLE' ? 'warn' : result && !result.ok ? 'warn' : 'idle';
+    data?.status === 'UNAVAILABLE'
+      ? 'warn'
+      : captureStatus === 'COMPLETE'
+        ? 'ok'
+        : captureStatus === 'PARTIAL' || captureStatus === 'PASS'
+          ? 'warn'
+          : result && !result.ok
+            ? 'warn'
+            : 'idle';
+  const partial = captureStatus === 'PARTIAL';
+  const failed = captureStatus === 'FAILED' || data?.status === 'FAIL' || data?.status === 'TIMEOUT';
+  const unsupported = data?.frame?.unsupported || [];
+  const missingAssets = data?.frame?.missingAssets || [];
 
   return (
     <div className="sim-stack">
@@ -126,7 +139,7 @@ export default function FrameTab({ hdlReady }) {
       <Panel
         title="RTL frame monitor"
         tag="eve_renderer.sv"
-        actions={<StatusPill tone={busy ? 'busy' : verdictTone}>{busy ? 'running' : data?.status || 'not run'}</StatusPill>}
+        actions={<StatusPill tone={busy ? 'busy' : verdictTone}>{busy ? 'running' : captureStatus || 'not run'}</StatusPill>}
       >
         <div className="sim-source-grid">
           <div className={`sim-source ${sourceKind === 'rom' ? 'selected' : ''}`}>
@@ -232,9 +245,24 @@ export default function FrameTab({ hdlReady }) {
           </EmptyState>
         ) : null}
 
+        {data && partial ? (
+          <Notice tone="warn" title="PARTIAL frame — unsupported or missing objects">
+            The RTL renderer produced a valid capture for the supported objects, but this frame is not
+            complete. {data.frame?.unsupportedObjectCount || 0} unsupported object(s) and{' '}
+            {data.frame?.missingAssetCount || 0} missing asset(s) were not rendered. Unsupported
+            primitives are reported, never silently drawn as rectangles.
+          </Notice>
+        ) : null}
+
+        {data && failed ? (
+          <Notice tone="error" title="FAILED frame capture">
+            {data.capture?.reason || data.detail || 'The capture did not pass its pixel and summary checks.'}
+          </Notice>
+        ) : null}
+
         {data ? (
           <>
-            {data.ok && data.pixels ? (
+            {data.pixels ? (
               <div className="sim-monitor">
                 <div className="sim-monitor-stage">
                   <canvas ref={canvasRef} className="sim-canvas" aria-label="RTL-rendered frame" />
@@ -246,9 +274,17 @@ export default function FrameTab({ hdlReady }) {
                     <dd>
                       {data.width} × {data.height}
                     </dd>
+                    <dt>Frame status</dt>
+                    <dd>
+                      <StatusPill tone={captureStatus === 'COMPLETE' ? 'ok' : captureStatus === 'PARTIAL' ? 'warn' : 'idle'}>
+                        {captureStatus || 'unknown'}
+                      </StatusPill>
+                    </dd>
                     <dt>Objects</dt>
                     <dd>
-                      {data.frame?.objects} / 16
+                      {data.frame?.renderedObjectCount ?? data.frame?.objects} rendered ·{' '}
+                      {data.frame?.unsupportedObjectCount || 0} unsupported ·{' '}
+                      {data.frame?.missingAssetCount || 0} missing asset(s) · {data.frame?.objects} / 16 packed
                       {data.frame?.warnings?.length ? ` · ${data.frame.warnings.length} warning(s)` : ''}
                     </dd>
                     <dt>Background</dt>
@@ -256,6 +292,22 @@ export default function FrameTab({ hdlReady }) {
                       <span className="sim-swatch" style={{ background: `#${data.frame?.background}` }} />
                       <span className="sim-mono">#{data.frame?.background}</span>
                     </dd>
+                    <dt>Checks</dt>
+                    <dd>
+                      {data.capture?.checks ?? '—'} / {data.capture?.expectedChecks ?? '—'} expected ·{' '}
+                      {data.capture?.mismatches ?? '—'} mismatches
+                    </dd>
+                    <dt>Coverage</dt>
+                    <dd>
+                      {data.capture?.coverage ?? '—'} / {data.capture?.visibleObjects ?? '—'} visible objects
+                    </dd>
+                    <dt>Pixels</dt>
+                    <dd>
+                      {data.capture?.zeroPixels ?? '—'} zero · {data.capture?.backgroundPixels ?? '—'} background ·{' '}
+                      {data.capture?.nonBackgroundPixels ?? '—'} non-background · {data.capture?.uniqueColors ?? '—'} unique colors
+                    </dd>
+                    <dt>Frame checksum</dt>
+                    <dd className="sim-mono sim-break">{data.capture?.checksum ?? '—'}</dd>
                     <dt>Pixel SHA-256</dt>
                     <dd className="sim-mono sim-break">{data.pixels.sha256}</dd>
                     <dt>Pixel bytes</dt>
@@ -285,6 +337,31 @@ export default function FrameTab({ hdlReady }) {
                         <li key={warning}>{warning}</li>
                       ))}
                     </ul>
+                  ) : null}
+                  {unsupported.length ? (
+                    <div>
+                      <h4>Unsupported objects</h4>
+                      <ul className="sim-warning-list">
+                        {unsupported.map((item) => (
+                          <li key={`unsupported-${item.pageObjectIndex}-${item.type}`}>
+                            {item.typeName || item.kind} #{item.pageObjectIndex}: {item.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {missingAssets.length ? (
+                    <div>
+                      <h4>Missing assets</h4>
+                      <ul className="sim-warning-list">
+                        {missingAssets.map((item) => (
+                          <li key={`missing-${item.pageObjectIndex ?? 'global'}-${item.kind}`}>
+                            {item.typeName || item.kind}
+                            {item.pageObjectIndex != null ? ` #${item.pageObjectIndex}` : ''}: {item.reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null}
                 </aside>
               </div>

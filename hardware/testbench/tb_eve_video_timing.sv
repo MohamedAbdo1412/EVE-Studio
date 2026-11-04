@@ -95,6 +95,7 @@ module tb_eve_video_timing;
         H_TOTAL = H_ACTIVE + HFP + HS + HBP;
         V_TOTAL = V_ACTIVE + VFP + VS + VBP;
         profile_name = full_profile ? "1920x1080@30" : "320x180@60 (simulation)";
+        $display("VIDEO TIMING VERIFICATION (functional timing generator, not HDMI/TMDS)");
         $display("EVE timing test profile: %0s  hTotal=%0d vTotal=%0d", profile_name, H_TOTAL, V_TOTAL);
     end
 
@@ -169,10 +170,10 @@ module tb_eve_video_timing;
                     if (frames >= FRAMES_TO_CHECK) begin
                         finished = 1'b1;
                         if (errors == 0) begin
-                            $display("PASS: %s timing verified over %0d frame(s) — hTotal=%0d vTotal=%0d active=%0dx%0d",
+                            $display("PASS: VIDEO TIMING VERIFICATION %s verified over %0d frame(s) — hTotal=%0d vTotal=%0d active=%0dx%0d",
                                      profile_name, frames, H_TOTAL, V_TOTAL, H_ACTIVE, V_ACTIVE);
                         end else begin
-                            $display("FAIL: %s timing had %0d error(s)", profile_name, errors);
+                            $display("FAIL: VIDEO TIMING VERIFICATION %s had %0d error(s)", profile_name, errors);
                         end
                         $finish;
                     end

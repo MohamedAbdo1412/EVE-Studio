@@ -84,7 +84,7 @@ function hardwareReadme(artifacts) {
     '  manifest.json        release manifest, checksums, budgets',
     '  address-map.json     ROM region and asset offsets',
     '  firmware/            deterministic ESP32-S3 PlatformIO project',
-    '  frame/               RTL frame package (meta, OAM, text, font)',
+    '  frame/               RTL frame package (meta, OAM, text, font, diagnostics)',
     '  rtl/                 synthesizable RTL and separate testbenches',
     '  verification/        toolchain state and feasibility report',
     '',

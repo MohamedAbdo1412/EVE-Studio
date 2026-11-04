@@ -78,8 +78,17 @@ JavaScript renderer.
 
 - \`eve_video_timing.sv\` passes a real Icarus Verilog testbench for two profiles:
   320x180 fast functional timing and 1920x1080 @ 30 Hz reference timing.
-- \`eve_renderer.sv\` passes a real Icarus frame-capture testbench that writes a
-  binary PPM image from RTL-generated pixels.
+- \`eve_renderer.sv\` passes a real Icarus RTL FUNCTIONAL RENDERER CAPTURE
+  testbench that writes a binary PPM image from RTL-generated pixels. The
+  testbench compares every pixel against an independent reference compositor
+  and asserts object coverage, non-background pixels, unique colors, frame
+  checksum, text trailing cells, vertical non-repetition and blank-glyph
+  transparency. A bare PASS line is not accepted by the backend; a complete
+  \`FRAME_SUMMARY\` must agree with the captured PPM.
+- Text is a single row of 8x8 A8 glyphs. Only \`gx < text_length\` and the first
+  glyph row are sampled; nonzero A8 bytes are alpha. The 4096-byte text RAM
+  imposes a 12-bit byte offset and 8-bit glyph count, enforced by the packer,
+  ROM validator and backend.
 - \`eve_flash_writer.sv\` passes a real Icarus testbench against
   \`w25q128jv_model.sv\`: 256-byte page splitting, 4 KiB sector erase, range
   rejection and page-cross detection.
@@ -93,6 +102,11 @@ JavaScript renderer.
 - No pinout, package or speed grade is qualified.
 - \`eve_renderer.sv\` is a functional reference core (one pixel per
   object_count + 2 clocks), not a real-time 1080p30 scanout pipeline.
+- The renderer implements RECT, BORDER_RECT and TEXT only. IMAGE, VIDEO,
+  ROUND_RECT, CIRCLE, LINE and GROUP are reported as unsupported by the frame
+  package; they are not flattened into rectangles and are never presented as a
+  complete frame. Image support is not claimed until the RTL reads RGB565
+  assets and composites them correctly.
 - The SDRAM controller is a single-beat vertical slice, not a bandwidth-tuned
   scanout path. Board signal integrity and pinout are not qualified.
 - The flash model is command-layer only; physical SPI pin timing is not
@@ -120,7 +134,8 @@ vvp sdram.vvp
 \`\`\`
 
 The frame package directory contains \`frame.meta\`, \`oam.hex\`, \`text.hex\` and
-\`font.hex\` from the export. The testbench writes a binary PPM (P6) image.
+\`font.hex\` from the export; \`frame.diagnostics.json\` is optional metadata and
+is ignored by the RTL capture. The testbench writes a binary PPM (P6) image.
 `;
 
 export const RTL_WORKFLOW_NOTE =

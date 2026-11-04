@@ -12,11 +12,15 @@
  * geometry: every field comes from a ROM scene record.
  */
 
-import { SCENE_TYPES, NO_INDEX } from './sceneCodec.js';
-import { ASSET_TYPES } from './sceneCodec.js';
+import { SCENE_TYPES, NO_INDEX, ASSET_TYPES } from './sceneCodec.js';
+import {
+  TEXT_MEMORY_BYTES,
+  assertTextReference,
+  validateTextReference,
+} from './textMemory.js';
 
 export const FRAME_MAX_OBJECTS = 16;
-export const FRAME_TEXT_BYTES = 4096;
+export const FRAME_TEXT_BYTES = TEXT_MEMORY_BYTES;
 export const FRAME_FONT_BYTES = 4096;
 
 const TYPE_RECT = 1;
@@ -58,8 +62,9 @@ export function packObject({
   value |= BigInt(strokeColor & 0xffffff) << 71n;
   value |= BigInt(strokeWidth & 0xff) << 95n;
   value |= BigInt(zOrder & 0xff) << 103n;
-  value |= BigInt(textOffset & 0xfff) << 111n;
-  value |= BigInt(textLength & 0xff) << 123n;
+  assertTextReference(textOffset, textLength, { label: `OAM object type ${type}` });
+  value |= BigInt(textOffset) << 111n;
+  value |= BigInt(textLength) << 123n;
   value |= BigInt(visible ? 1 : 0) << 131n;
   value |= BigInt(centerText ? 1 : 0) << 132n;
   return value;
@@ -93,10 +98,37 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
   const background = rgbaToRgb(pageRecord?.fillColor ?? 0);
 
   const warnings = [];
+  const unsupported = [];
+  const missingAssets = [];
   const objects = [];
   const pageObjects = parsed.sceneTable
     .filter((record) => record.pageIndex === page && record.type !== SCENE_TYPES.PAGE)
     .sort((a, b) => a.zOrder - b.zOrder || a.pageObjectIndex - b.pageObjectIndex);
+
+  const addUnsupported = (record, reason) => {
+    const entry = {
+      kind: record.typeName.toLowerCase(),
+      type: record.type,
+      typeName: record.typeName,
+      pageObjectIndex: record.pageObjectIndex,
+      objectId: `0x${(record.objectId >>> 0).toString(16).padStart(8, '0')}`,
+      reason,
+    };
+    unsupported.push(entry);
+    warnings.push(`Object ${record.pageObjectIndex} (${record.typeName}) is unsupported: ${reason}`);
+  };
+
+  const addMissingAsset = (record, reason) => {
+    missingAssets.push({
+      kind: record.typeName.toLowerCase(),
+      type: record.type,
+      typeName: record.typeName,
+      pageObjectIndex: record.pageObjectIndex,
+      objectId: `0x${(record.objectId >>> 0).toString(16).padStart(8, '0')}`,
+      reason,
+    });
+    warnings.push(`Object ${record.pageObjectIndex} (${record.typeName}) has a missing asset: ${reason}`);
+  };
 
   for (const record of pageObjects) {
     const visible = (record.flags & 0x01) !== 0;
@@ -133,6 +165,17 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
         }),
       });
     } else if (record.type === SCENE_TYPES.TEXT) {
+      const check = validateTextReference(record.textOffset, record.textLength, {
+        label: `Text object ${record.pageObjectIndex}`,
+      });
+      if (!check.ok) throw new Error(check.error);
+      if (record.textOffset + record.textLength > parsed.texts.length) {
+        throw new Error(
+          `Text object ${record.pageObjectIndex}: range ${record.textOffset}..${
+            record.textOffset + record.textLength
+          } exceeds the ROM text table (${parsed.texts.length} bytes)`,
+        );
+      }
       objects.push({
         kind: 'text',
         record,
@@ -151,11 +194,27 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
         }),
       });
     } else if (record.type === SCENE_TYPES.IMAGE) {
-      warnings.push(
-        `Object ${record.pageObjectIndex} is an image; the RTL vertical slice does not composite bitmap assets yet.`,
+      const asset = parsed.assetTable[record.assetIndex] || null;
+      if (!asset || record.assetIndex === NO_INDEX) {
+        addMissingAsset(record, 'no decoded image asset is present in the ROM.');
+      }
+      addUnsupported(
+        record,
+        'the RTL renderer does not fetch RGB565 image assets or composite bitmap pixels.',
+      );
+    } else if (record.type === SCENE_TYPES.VIDEO) {
+      addUnsupported(record, 'video frames are not represented by EVE ROM FORMAT 1.0 or the RTL renderer.');
+    } else if (record.type === SCENE_TYPES.CIRCLE) {
+      addUnsupported(record, 'circle geometry is not implemented by the RTL renderer.');
+    } else if (record.type === SCENE_TYPES.LINE) {
+      addUnsupported(record, 'line geometry is not implemented by the RTL renderer.');
+    } else if (record.type === SCENE_TYPES.ROUND_RECT) {
+      addUnsupported(
+        record,
+        'rounded-rectangle geometry is not implemented by the RTL renderer; it is not drawn as a rectangle.',
       );
     } else {
-      warnings.push(`Object type ${record.typeName} is not rendered by the RTL vertical slice.`);
+      addUnsupported(record, `${record.typeName} objects are not rendered by the RTL vertical slice.`);
     }
   }
 
@@ -176,6 +235,16 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
     }
   } else {
     warnings.push('ROM has no font asset; text will render blank.');
+    if (objects.some((object) => object.kind === 'text')) {
+      missingAssets.push({
+        kind: 'font',
+        type: ASSET_TYPES.FONT,
+        typeName: 'FONT',
+        pageObjectIndex: null,
+        objectId: null,
+        reason: `the ROM contains text objects but no ${FRAME_FONT_BYTES}-byte font asset.`,
+      });
+    }
   }
 
   const textBytes = new Uint8Array(FRAME_TEXT_BYTES);
@@ -185,6 +254,16 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
   const oamHex = objects.map((object) => `${hexWord160(object.word)}\n`).join('');
   const textHex = bytesToHexLines(textBytes);
   const fontHex = bytesToHexLines(fontBytes);
+
+  const complete = unsupported.length === 0 && missingAssets.length === 0;
+  const diagnostics = {
+    status: complete ? 'COMPLETE' : 'PARTIAL',
+    renderedObjectCount: objects.length,
+    unsupportedObjectCount: unsupported.length,
+    missingAssetCount: missingAssets.length,
+    unsupported,
+    missingAssets,
+  };
 
   return {
     meta,
@@ -201,6 +280,11 @@ export function framePackageFromRom(parsed, { pageIndex } = {}) {
     height,
     pageIndex: page,
     warnings,
+    diagnostics,
+    renderedObjectCount: diagnostics.renderedObjectCount,
+    unsupportedObjectCount: diagnostics.unsupportedObjectCount,
+    missingAssetCount: diagnostics.missingAssetCount,
+    status: diagnostics.status,
   };
 }
 
@@ -212,6 +296,7 @@ export function framePackageFiles(pkg) {
     'oam.hex': encode(pkg.oamHex),
     'text.hex': encode(pkg.textHex),
     'font.hex': encode(pkg.fontHex),
+    'frame.diagnostics.json': encode(`${JSON.stringify(pkg.diagnostics ?? {}, null, 2)}\n`),
   };
 }
 

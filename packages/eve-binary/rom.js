@@ -34,8 +34,10 @@ import {
   decodeAssetTable,
   rgbaToRgb565,
   NO_INDEX,
+  SCENE_TYPES,
 } from './sceneCodec.js';
 import { buildFontAtlas, FONT_ASSET_PATH, encodeGlyphText, decodeGlyphText } from './font5x7.js';
+import { validateTextReference } from './textMemory.js';
 import { floatToBits, colorToRgba, VARIABLE_TYPES } from '../eve-protocol/eveProtocol.js';
 
 export const ROM_FORMAT_NAME = 'EVE ROM FORMAT';
@@ -675,8 +677,27 @@ export function parseRom(input, { verifyChecksums = false } = {}) {
       }
     }
     for (const record of sceneTable) {
-      if (record.textOffset + record.textLength > texts.length) errors.push('Scene text reference outside text table');
+      if (record.type !== SCENE_TYPES.TEXT) continue;
+      const check = validateTextReference(record.textOffset, record.textLength, {
+        label: `Scene text record ${record.pageObjectIndex}`,
+      });
+      if (!check.ok) {
+        errors.push(check.error);
+        continue;
+      }
+      if (record.textOffset + record.textLength > texts.length) {
+        errors.push(
+          `Scene text record ${record.pageObjectIndex} references bytes ${record.textOffset}..${
+            record.textOffset + record.textLength
+          } outside the ${texts.length}-byte text table`,
+        );
+      }
     }
+
+    // Asset and text-reference checks happen after the early bounds/checksum
+    // gate, so they must return their diagnostics before the parsed record is
+    // handed to the exporter.
+    if (errors.length) return { ok: false, error: errors[0], errors };
 
     return {
       ok: true,

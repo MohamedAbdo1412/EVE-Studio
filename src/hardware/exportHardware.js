@@ -295,6 +295,10 @@ export async function buildHardwareArtifacts({
           height: frame.height,
           objects: frame.objects.length,
           background: `#${frame.background.toString(16).padStart(6, '0')}`,
+          status: frame.status,
+          renderedObjectCount: frame.renderedObjectCount,
+          unsupportedObjectCount: frame.unsupportedObjectCount,
+          missingAssetCount: frame.missingAssetCount,
           renderer: 'eve_renderer.sv functional vertical slice',
         }
       : null,
@@ -338,6 +342,7 @@ export async function buildHardwareArtifacts({
       'frame/oam.hex': frame ? textBytes(frame.oamHex) : null,
       'frame/text.hex': frame ? textBytes(frame.textHex) : null,
       'frame/font.hex': frame ? textBytes(frame.fontHex) : null,
+      'frame/frame.diagnostics.json': frame ? jsonBytes(frame.diagnostics) : null,
     },
     esp32Files,
     warnings,

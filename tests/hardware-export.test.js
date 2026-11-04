@@ -71,6 +71,28 @@ describe('hardware export pipeline', () => {
     expect(result.frame.fontHex.trim().split('\n').length).toBe(4096);
   });
 
+  it('marks unsupported frame objects PARTIAL instead of flattening them', async () => {
+    const result = await exportValid();
+    expect(result.frame.status).toBe('PARTIAL');
+    expect(result.frame.unsupportedObjectCount).toBeGreaterThan(0);
+    expect(result.frame.diagnostics.unsupported.map((item) => item.typeName)).toEqual(
+      expect.arrayContaining(['ROUND_RECT', 'IMAGE']),
+    );
+    expect(result.releaseManifest.framePackage.status).toBe('PARTIAL');
+    expect(result.releaseManifest.framePackage.unsupportedObjectCount).toBe(
+      result.frame.unsupportedObjectCount,
+    );
+
+    const diagnosticsFile = result.files['frame/frame.diagnostics.json'];
+    expect(diagnosticsFile).toBeInstanceOf(Uint8Array);
+    const diagnostics = JSON.parse(new TextDecoder().decode(diagnosticsFile));
+    expect(diagnostics.status).toBe('PARTIAL');
+    expect(diagnostics.unsupported.length).toBe(result.frame.unsupportedObjectCount);
+
+    // Unsupported records stay out of OAM; they are never packed as rectangles.
+    expect(result.frame.oamHex.trim().split('\n')).toHaveLength(result.frame.objects.length);
+  });
+
   it('writes a complete deterministic ESP32 project and marks the toolchain unavailable', async () => {
     const result = await exportValid();
     const names = Object.keys(result.esp32Files);

@@ -60,6 +60,7 @@
 import { crc32, fnv1a32 } from './checksums.js';
 import { colorToRgba, floatToBits } from '../eve-protocol/eveProtocol.js';
 import { encodeGlyphText } from './font5x7.js';
+import { assertTextReference } from './textMemory.js';
 
 export const SCENE_RECORD_SIZE = 40;
 export const VARIABLE_RECORD_SIZE = 28;
@@ -73,6 +74,13 @@ export const SCENE_TYPES = Object.freeze({
   TEXT: 5,
   IMAGE: 6,
   BUTTON: 7,
+  // Types 8..11 preserve shape identity instead of flattening unsupported
+  // primitives into rectangles. They remain part of EVE ROM FORMAT 1.0; the
+  // renderer reports them as unsupported until matching RTL geometry exists.
+  ROUND_RECT: 8,
+  CIRCLE: 9,
+  LINE: 10,
+  VIDEO: 11,
 });
 
 export const SCENE_TYPE_NAMES = Object.freeze(
@@ -117,6 +125,11 @@ export function stableObjectId(id) {
  * ------------------------------------------------------------------------- */
 
 export function encodeSceneRecord(record) {
+  if (record.type === SCENE_TYPES.TEXT) {
+    assertTextReference(record.textOffset ?? 0, record.textLength ?? 0, {
+      label: `scene text record${record.objectId != null ? ` ${record.objectId}` : ''}`,
+    });
+  }
   const bytes = new Uint8Array(SCENE_RECORD_SIZE);
   const view = new DataView(bytes.buffer);
   view.setUint8(0, record.type);
@@ -399,6 +412,10 @@ export function flattenScene({
   let textBytes = 0;
   const pushText = (text) => {
     const bytes = text instanceof Uint8Array ? text : new Uint8Array();
+    if (bytes.length === 0) return { offset: 0, length: 0 };
+    assertTextReference(textBytes, bytes.length, {
+      label: `glyph text entry ${textChunks.length + 1}`,
+    });
     const offset = textBytes;
     textChunks.push(bytes);
     textBytes += bytes.length;
@@ -481,9 +498,14 @@ export function flattenScene({
       const strokeColor = colorToRgba(valueFor('stroke', 'transparent'));
       const strokeWidth = Math.max(0, Number(staticValue(node, 'strokeWidth') ?? 0) || 0);
       const bordered = shapeType === 'rect' && strokeWidth > 0 && (strokeColor & 0xff) !== 0;
+      let sceneType = SCENE_TYPES.RECT;
+      if (bordered) sceneType = SCENE_TYPES.BORDER_RECT;
+      else if (shapeType === 'roundRect') sceneType = SCENE_TYPES.ROUND_RECT;
+      else if (shapeType === 'circle') sceneType = SCENE_TYPES.CIRCLE;
+      else if (shapeType === 'line') sceneType = SCENE_TYPES.LINE;
       records.push({
         ...base,
-        type: bordered ? SCENE_TYPES.BORDER_RECT : SCENE_TYPES.RECT,
+        type: sceneType,
         fillColor: colorToRgba(valueFor('fill', 'transparent')),
         strokeColor,
         strokeWidth,
@@ -496,6 +518,16 @@ export function flattenScene({
       records.push({
         ...base,
         type: SCENE_TYPES.IMAGE,
+        assetIndex,
+        flags: dynamic(node, 'src') ? base.flags | SCENE_FLAGS.DYNAMIC : base.flags,
+        bindingIndex: bindingFor('src'),
+      });
+    } else if (tag === 'vid') {
+      const src = valueFor('src', null);
+      const assetIndex = src ? assetIndexByPath.get(src) ?? NO_INDEX : NO_INDEX;
+      records.push({
+        ...base,
+        type: SCENE_TYPES.VIDEO,
         assetIndex,
         flags: dynamic(node, 'src') ? base.flags | SCENE_FLAGS.DYNAMIC : base.flags,
         bindingIndex: bindingFor('src'),
@@ -536,7 +568,7 @@ export function flattenScene({
 
     let childSource = 0;
     for (const child of node.children || []) {
-      if (!['group', 'text', 'img', 'button', 'shape'].includes(child.tag)) continue;
+      if (!['group', 'text', 'img', 'vid', 'button', 'shape'].includes(child.tag)) continue;
       walk(child, pageIndex, box.x, box.y, childSource);
       childSource += 1;
     }
