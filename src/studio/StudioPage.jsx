@@ -144,6 +144,7 @@ export default function StudioPage() {
         onResetRuntime={session.resetAllVariables}
         onShowCpp={() => setEditorTab('cpp')}
         onShowDocs={() => navigate('/docs')}
+        onShowHardware={() => navigate('/hardware')}
         assets={assets}
         onNotify={notify}
         canExport={canExport}

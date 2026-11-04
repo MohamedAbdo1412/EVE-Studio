@@ -4247,3 +4247,415 @@ samp {
     scroll-behavior: auto !important;
   }
 }
+
+/* =========================================================================
+   EVE Hardware Build
+   ========================================================================= */
+
+.eve-hw-page {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 22px 26px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.eve-hw-header {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.eve-hw-header > .eve-button {
+  align-self: flex-start;
+}
+
+.eve-hw-title {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.eve-hw-title-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  color: var(--cyan);
+  background: rgba(56, 200, 216, 0.1);
+  border: 1px solid rgba(56, 200, 216, 0.26);
+}
+
+.eve-hw-title h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.eve-hw-title p {
+  margin: 0;
+  max-width: 860px;
+  color: var(--muted);
+}
+
+.eve-hw-banner {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 13px 15px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 180, 84, 0.32);
+  background: linear-gradient(180deg, rgba(255, 180, 84, 0.1), rgba(255, 180, 84, 0.04));
+  color: var(--amber);
+}
+
+.eve-hw-banner strong {
+  display: block;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.eve-hw-banner span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.eve-hw-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+
+.eve-hw-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.eve-hw-progress.done {
+  color: var(--green);
+}
+
+.eve-hw-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255, 92, 92, 0.34);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.eve-hw-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 52px 24px;
+  text-align: center;
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-strong);
+  background: var(--bg-panel);
+  color: var(--muted);
+}
+
+.eve-hw-empty svg {
+  color: var(--cyan);
+}
+
+.eve-hw-empty h2 {
+  margin: 4px 0 0;
+  font-size: 16px;
+  color: var(--text-strong);
+}
+
+.eve-hw-empty p {
+  margin: 0;
+  max-width: 560px;
+}
+
+.eve-hw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+}
+
+.eve-hw-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  padding: 16px;
+  min-width: 0;
+}
+
+.eve-hw-card.wide {
+  width: 100%;
+}
+
+.eve-hw-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.eve-hw-card h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-strong);
+}
+
+.eve-hw-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--cyan);
+  border: 1px solid rgba(56, 200, 216, 0.28);
+  background: rgba(56, 200, 216, 0.08);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.eve-hw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  padding: 3px 8px;
+  border: 1px solid;
+}
+
+.eve-hw-pill.ok {
+  color: var(--green);
+  border-color: rgba(0, 208, 132, 0.32);
+  background: var(--green-soft);
+}
+
+.eve-hw-pill.warn {
+  color: var(--amber);
+  border-color: rgba(255, 180, 84, 0.32);
+  background: var(--amber-soft);
+}
+
+.eve-hw-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.eve-hw-metric {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-panel-2);
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.eve-hw-metric-label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.eve-hw-metric strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-hw-metric strong.mono {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.eve-hw-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eve-hw-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+}
+
+.eve-hw-check-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: 0 0 auto;
+  background: var(--muted-2);
+}
+
+.eve-hw-check.pass .eve-hw-check-dot { background: var(--green); }
+.eve-hw-check.warning .eve-hw-check-dot { background: var(--amber); }
+.eve-hw-check.fail .eve-hw-check-dot { background: var(--red); }
+
+.eve-hw-check div {
+  min-width: 0;
+  flex: 1;
+}
+
+.eve-hw-check strong {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.eve-hw-check span {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.eve-hw-check em {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+.eve-hw-note {
+  margin: 12px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.eve-hw-tool {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border-soft);
+}
+
+.eve-hw-tool + .eve-hw-tool {
+  margin-top: 8px;
+}
+
+.eve-hw-tool-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 5px;
+  flex: 0 0 auto;
+  background: var(--amber);
+}
+
+.eve-hw-tool-dot.ok { background: var(--green); }
+
+.eve-hw-tool strong {
+  display: block;
+  font-size: 12px;
+  color: var(--text-strong);
+}
+
+.eve-hw-tool span {
+  display: block;
+  font-size: 11px;
+  color: var(--amber);
+}
+
+.eve-hw-tool em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.eve-hw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.eve-hw-table th {
+  text-align: left;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.eve-hw-table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--muted);
+}
+
+.eve-hw-table code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text);
+}
+
+.eve-hw-downloads {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.eve-hw-card.warnings {
+  border-color: rgba(255, 180, 84, 0.3);
+}
+
+.eve-hw-card.warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.eve-hw-card.warnings li + li {
+  margin-top: 5px;
+}
+
+@media (max-width: 720px) {
+  .eve-hw-page { padding: 16px 14px 40px; }
+  .eve-hw-grid { grid-template-columns: 1fr; }
+  .eve-hw-table td:last-child { display: none; }
+  .eve-hw-table th:last-child { display: none; }
+}

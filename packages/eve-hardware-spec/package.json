@@ -1,0 +1,11 @@
+{
+  "name": "@eve/hardware-spec",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EVE reference hardware profile, physical budgets and feasibility checks",
+  "exports": {
+    ".": "./index.js",
+    "./target": "./reference-target.json"
+  }
+}

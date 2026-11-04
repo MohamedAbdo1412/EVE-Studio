@@ -1,0 +1,24 @@
+{
+  "name": "eve-simulator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EVE Simulator — local native HDL simulation and ROM inspection for EVE hardware artifacts.",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:ui": "vite",
+    "server": "node server/index.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.mjs --serve-dist"
+  },
+  "dependencies": {
+    "lucide-react": "^1.67.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.2.1",
+    "vite": "^8.3.5"
+  }
+}

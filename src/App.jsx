@@ -1,10 +1,11 @@
 import React from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { BookOpen, Boxes, Circle, FlaskConical, Sparkles } from 'lucide-react';
+import { BookOpen, Boxes, Circle, FlaskConical, Sparkles, Cpu } from 'lucide-react';
 import { ProjectProvider, useProject } from './project/ProjectContext.jsx';
 import StudioPage from './studio/StudioPage.jsx';
 import DocsPage from './docs/DocsPage.jsx';
 import ExamplesPage from './examples/ExamplesPage.jsx';
+import HardwarePage from './hardware/HardwarePage.jsx';
 
 function HeaderStatus() {
   const { compilerStatus } = useProject();
@@ -32,6 +33,7 @@ function HeaderStatus() {
 function Header() {
   const location = useLocation();
   const docsActive = location.pathname.startsWith('/docs');
+  const hardwareActive = location.pathname.startsWith('/hardware');
   return (
     <header className="eve-app-header">
       <NavLink to="/" className="eve-brand" aria-label="EVE Studio home">
@@ -53,6 +55,10 @@ function Header() {
         <NavLink to="/docs" className={docsActive ? 'is-active' : ''}>
           <BookOpen size={15} />
           Documentation
+        </NavLink>
+        <NavLink to="/hardware" className={hardwareActive ? 'is-active' : ''}>
+          <Cpu size={15} />
+          Hardware
         </NavLink>
         <NavLink to="/examples" className={({ isActive }) => (isActive ? 'is-active' : '')}>
           <FlaskConical size={15} />
@@ -82,6 +88,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<StudioPage />} />
             <Route path="/docs/*" element={<DocsPage />} />
+            <Route path="/hardware" element={<HardwarePage />} />
             <Route path="/examples" element={<ExamplesPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

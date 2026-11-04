@@ -1,0 +1,14 @@
+{
+  "name": "@eve/binary",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EVE ROM FORMAT 1.0 builder/parser, scene records and checksums",
+  "exports": {
+    ".": "./index.js",
+    "./checksums": "./checksums.js",
+    "./rom": "./rom.js",
+    "./scene": "./sceneCodec.js",
+    "./font": "./font5x7.js"
+  }
+}

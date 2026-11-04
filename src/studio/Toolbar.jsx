@@ -5,6 +5,7 @@ import {
   Cloud,
   CloudOff,
   Code2,
+  Cpu,
   Download,
   Loader2,
   Play,
@@ -56,6 +57,7 @@ export default function Toolbar({
   onResetRuntime,
   onShowCpp,
   onShowDocs,
+  onShowHardware,
   assets,
   onNotify,
   canExport,
@@ -135,6 +137,15 @@ export default function Toolbar({
         <button type="button" className="eve-button ghost" onClick={onShowDocs} title="Open documentation">
           <Code2 size={14} />
           Docs
+        </button>
+        <button
+          type="button"
+          className="eve-button ghost"
+          onClick={onShowHardware}
+          title="Build the ROM, ESP32 project and RTL hardware artifacts"
+        >
+          <Cpu size={14} />
+          Hardware
         </button>
         <button
           type="button"

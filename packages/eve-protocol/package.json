@@ -1,0 +1,11 @@
+{
+  "name": "@eve/protocol",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EVE Protocol 1.0 framing, opcode registry and typed variable codec",
+  "main": "eveProtocol.js",
+  "exports": {
+    ".": "./eveProtocol.js"
+  }
+}

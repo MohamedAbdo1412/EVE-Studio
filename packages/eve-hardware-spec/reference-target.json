@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "targetName": "EVE Reference Prototype",
+  "qualification": "REFERENCE PROFILE — PACKAGE/PINOUT NOT QUALIFIED",
+  "fpga": {
+    "family": "GOWIN GW1N",
+    "device": "GW1N-4",
+    "fullOrderingCode": null,
+    "package": null,
+    "speedGrade": null,
+    "clockHz": 100000000,
+    "pins": null
+  },
+  "mcu": {
+    "family": "ESP32-S3",
+    "module": "ESP32-S3-WROOM-1",
+    "framework": "Arduino",
+    "spiClockHz": 10000000,
+    "pins": null
+  },
+  "rom": {
+    "device": "W25Q128JV",
+    "capacityBytes": 16777216,
+    "interface": "QSPI",
+    "clockHz": 50000000
+  },
+  "ram": {
+    "device": "IS42S16400J-6",
+    "capacityBytes": 8388608,
+    "busWidth": 16,
+    "clockHz": 166000000,
+    "casLatency": 3
+  },
+  "video": {
+    "transmitter": "ADV7513",
+    "profile": "1080p30",
+    "width": 1920,
+    "height": 1080,
+    "refreshRate": 30,
+    "pixelClockHz": 74250000
+  }
+}
