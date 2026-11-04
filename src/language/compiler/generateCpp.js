@@ -1,0 +1,412 @@
+function toPascal(value) {
+  return String(value)
+    .split(/[^A-Za-z0-9]+|_/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+export function projectClassName(appName) {
+  const base = toPascal(appName || 'EVE Project') || 'EVEProject';
+  return /^\d/.test(base) ? `EVE${base}` : base;
+}
+
+function methodNameForPath(path) {
+  return `set${path.split('.').map(toPascal).join('')}`;
+}
+
+export function colorToUint32(value) {
+  const text = String(value || '').trim();
+  if (text === 'transparent') return 0x00000000;
+  if (!text.startsWith('#')) return 0x00000000;
+  const hex = text.slice(1);
+  if (hex.length === 3 || hex.length === 4) {
+    const expanded = hex
+      .split('')
+      .map((char) => `${char}${char}`)
+      .join('');
+    if (expanded.length === 6) return parseInt(expanded, 16) >>> 0;
+    return parseInt(expanded, 16) >>> 0;
+  }
+  if (hex.length === 6) return parseInt(hex, 16) >>> 0;
+  if (hex.length === 8) {
+    // EVE color type stores packed RGBA. The browser uses CSS #RRGGBBAA order.
+    return parseInt(hex, 16) >>> 0;
+  }
+  return 0;
+}
+
+function cppString(value) {
+  return `"${String(value ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')}"`;
+}
+
+function typeNameForEve(type) {
+  if (type === 'number') return 'float';
+  if (type === 'boolean') return 'bool';
+  if (type === 'color') return 'uint32_t';
+  return 'const std::string&';
+}
+
+function fieldForEve(type) {
+  if (type === 'number') return 'kFloat';
+  if (type === 'boolean') return 'kBoolean';
+  if (type === 'color') return 'kColor';
+  if (type === 'image') return 'kImage';
+  return 'kString';
+}
+
+function initialLiteral(type, value) {
+  if (type === 'number') {
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number}f` : '0.0f';
+  }
+  if (type === 'boolean') return value ? 'true' : 'false';
+  if (type === 'color') return `0x${colorToUint32(value).toString(16).toUpperCase().padStart(8, '0')}u`;
+  return cppString(value);
+}
+
+export function generateCpp({ appConfig, registry, diagnostics = [] }) {
+  const classBase = projectClassName(appConfig?.name);
+  const className = `${classBase}Client`;
+  const headerName = `${classBase}.h`;
+  const usedMethods = new Map();
+  const methods = registry.map((entry) => {
+    let methodName = methodNameForPath(entry.path);
+    if (usedMethods.has(methodName)) {
+      let suffix = 2;
+      while (usedMethods.has(`${methodName}_${suffix}`)) suffix += 1;
+      methodName = `${methodName}_${suffix}`;
+    }
+    usedMethods.set(methodName, entry.path);
+    return {
+      path: entry.path,
+      id: entry.id,
+      type: entry.type,
+      variable: entry.name,
+      methodName,
+      cppType: typeNameForEve(entry.type),
+      call: fieldForEve(entry.type),
+      initial: initialLiteral(entry.type, entry.initialValue),
+      argumentName:
+        entry.type === 'number'
+          ? 'value'
+          : entry.type === 'boolean'
+            ? 'enabled'
+            : entry.type === 'color'
+              ? 'rgba'
+              : 'value',
+    };
+  });
+
+  const constantLines = methods
+    .map(
+      (method) =>
+        `    static constexpr uint32_t ${constantName(method.path)} = 0x${method.id
+          .toString(16)
+          .toUpperCase()
+          .padStart(8, '0')}u; // ${method.path}`,
+    )
+    .join('\n');
+
+  const methodLines = methods
+    .map((method) => {
+      const call =
+        method.type === 'number'
+          ? `client_.setFloat(${constantName(method.path)}, ${method.argumentName});`
+          : method.type === 'boolean'
+            ? `client_.setBool(${constantName(method.path)}, ${method.argumentName});`
+            : method.type === 'color'
+              ? `client_.setColor(${constantName(method.path)}, ${method.argumentName});`
+              : `client_.setString(${constantName(method.path)}, ${method.argumentName});`;
+      const imageCall =
+        method.type === 'image'
+          ? `client_.setImage(${constantName(method.path)}, ${method.argumentName});`
+          : null;
+      return `    // ${method.path} (${method.type}, initial ${String(method.initial).replace(/\n/g, '')})
+    void ${method.methodName}(${method.cppType} ${method.argumentName}) {
+        ${imageCall || call}
+    }`;
+    })
+    .join('\n\n');
+
+  const registryLines = methods
+    .map(
+      (method) =>
+        `    {${constantName(method.path)}, EVE::k${method.type.charAt(0).toUpperCase()}${method.type.slice(1)}, ${cppString(method.path)}},`,
+    )
+    .join('\n');
+
+  const warnings = diagnostics
+    .filter((diagnostic) => diagnostic.code === 'EVE-H001')
+    .map((diagnostic) => ` * WARNING: ${diagnostic.message}`)
+    .join('\n');
+
+  const projectHeader = `// ============================================================================
+// ${classBase}.h — generated by EVE Studio for the EVE UI Language 0.1
+// ============================================================================
+// PROJECT-SPECIFIC MCU API
+// This header is not FPGA bitstream, firmware, or a finalized transport.
+// It calls the transport-independent EVEClient draft API.
+//${warnings ? `\n${warnings}\n` : ''}// ============================================================================
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include "EVEClient.h"
+#include "EVETransport.h"
+
+class ${className} {
+public:
+${constantLines}
+
+    explicit ${className}(EVE::EVEClient& client) : client_(client) {}
+
+    EVE::EVEClient& client() { return client_; }
+    const EVE::EVEClient& client() const { return client_; }
+
+${methodLines}
+
+    struct VariableInfo {
+        uint32_t id;
+        EVE::VariableType type;
+        const char* path;
+    };
+
+    static constexpr VariableInfo kVariables[] = {
+${registryLines}
+    };
+    static constexpr size_t kVariableCount = ${methods.length};
+
+private:
+    EVE::EVEClient& client_;
+};
+
+// Usage (Arduino/ESP32-style sketch):
+//
+//   #include "${headerName}"
+//   MyTransport transport;          // implements EVE::EVETransport
+//   EVE::EVEClient client(transport);
+//   ${className} ui(client);
+//
+//   void setup() {
+//       ui.${methods[0]?.methodName || 'setExample'}(/* typed value */);
+//   }
+`;
+
+  return {
+    className,
+    classBase,
+    headerName,
+    files: [
+      {
+        name: 'EVETransport.h',
+        language: 'cpp',
+        content: transportHeader(),
+      },
+      {
+        name: 'EVEClient.h',
+        language: 'cpp',
+        content: clientHeader(),
+      },
+      {
+        name: headerName,
+        language: 'cpp',
+        content: projectHeader,
+      },
+    ],
+    methods,
+    methodMap: Object.fromEntries(methods.map((method) => [method.path, method])),
+    usageSnippet: `MyTransport transport;\nEVE::EVEClient client(transport);\n${className} ui(client);\nui.${methods[0]?.methodName || 'setExample'}(${methods[0]?.argumentName || 'value'});`,
+  };
+}
+
+function constantName(path) {
+  return `k${path.split('.').map(toPascal).join('')}`;
+}
+
+function transportHeader() {
+  return `// EVETransport.h — EVE Studio draft transport interface
+// Implement this interface for SPI, UART, USB or a simulation channel.
+// The protocol is provisional and is not a finalized FPGA hardware specification.
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace EVE {
+
+class EVETransport {
+public:
+    virtual ~EVETransport() = default;
+
+    // Write one complete EVE packet. Return true when every byte was accepted.
+    virtual bool write(const uint8_t* data, size_t length) = 0;
+
+    // Optional diagnostic hook; implementations may ignore it.
+    virtual void onPacketDropped(uint8_t reason) { (void)reason; }
+};
+
+} // namespace EVE
+`;
+}
+
+function clientHeader() {
+  return `// EVEClient.h — generated by EVE Studio
+// ----------------------------------------------------------------------------
+// PROVISIONAL EVE PROTOCOL DRAFT — NOT A FINALIZED HARDWARE SPECIFICATION.
+// This transport-independent client serializes variable updates into a packet.
+// A future SPI transport and FPGA runtime must implement matching framing.
+//
+// Packet:
+//   magic          2 bytes   0x45 0x56 ("EV")
+//   version        1 byte    0x01
+//   opcode         1 byte    0x01 SET_VARIABLE
+//   payloadLength  2 bytes   little-endian
+//   sequence       2 bytes   little-endian
+//   payload        N bytes   uint32 id | uint8 type | encoded value
+//   crc16          2 bytes   little-endian CRC16-CCITT-FALSE over header+payload
+//
+// Encoded value:
+//   boolean        uint8 (0/1)
+//   number         IEEE-754 float32 little-endian
+//   color          uint32 little-endian
+//   string/image   UTF-8 bytes
+// ----------------------------------------------------------------------------
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include "EVETransport.h"
+
+namespace EVE {
+
+enum VariableType : uint8_t {
+    kString = 0x01,
+    kNumber = 0x02,
+    kBoolean = 0x03,
+    kColor = 0x04,
+    kImage = 0x05,
+};
+
+enum Opcode : uint8_t {
+    kSetVariable = 0x01,
+};
+
+class EVEClient {
+public:
+    static constexpr uint8_t kMagic0 = 0x45;
+    static constexpr uint8_t kMagic1 = 0x56;
+    static constexpr uint8_t kProtocolVersion = 0x01;
+    static constexpr size_t kHeaderSize = 6;
+    static constexpr size_t kCrcSize = 2;
+    static constexpr size_t kMaxPayload = 1024;
+
+    explicit EVEClient(EVETransport& transport) : transport_(transport), sequence_(0) {}
+
+    bool setFloat(uint32_t variableId, float value) {
+        uint8_t payload[kMaxPayload];
+        size_t offset = writePrefix(payload, variableId, kNumber);
+        uint32_t bits = 0;
+        static_assert(sizeof(float) == sizeof(uint32_t), "EVE draft protocol requires 32-bit float");
+        std::memcpy(&bits, &value, sizeof(bits));
+        writeU32LE(payload + offset, bits);
+        return send(payload, offset + 4);
+    }
+
+    bool setDouble(uint32_t variableId, double value) {
+        return setFloat(variableId, static_cast<float>(value));
+    }
+
+    bool setColor(uint32_t variableId, uint32_t rgba) {
+        uint8_t payload[kMaxPayload];
+        size_t offset = writePrefix(payload, variableId, kColor);
+        writeU32LE(payload + offset, rgba);
+        return send(payload, offset + 4);
+    }
+
+    bool setBool(uint32_t variableId, bool value) {
+        uint8_t payload[kMaxPayload];
+        size_t offset = writePrefix(payload, variableId, kBoolean);
+        payload[offset++] = value ? 1u : 0u;
+        return send(payload, offset);
+    }
+
+    bool setString(uint32_t variableId, const std::string& value) {
+        return setString(variableId, value.data(), value.size(), kString);
+    }
+
+    bool setImage(uint32_t variableId, const std::string& assetPath) {
+        return setString(variableId, assetPath.data(), assetPath.size(), kImage);
+    }
+
+    uint16_t sequence() const { return sequence_; }
+
+private:
+    size_t writePrefix(uint8_t* payload, uint32_t variableId, VariableType type) {
+        writeU32LE(payload, variableId);
+        payload[4] = static_cast<uint8_t>(type);
+        return 5;
+    }
+
+    bool setString(uint32_t variableId, const char* value, size_t length, VariableType type) {
+        if (length > kMaxPayload - 5) return false;
+        uint8_t payload[kMaxPayload];
+        size_t offset = writePrefix(payload, variableId, type);
+        std::memcpy(payload + offset, value, length);
+        return send(payload, offset + length);
+    }
+
+    bool send(const uint8_t* payload, size_t payloadLength) {
+        if (payloadLength > kMaxPayload) return false;
+        uint8_t packet[kHeaderSize + kMaxPayload + kCrcSize];
+        packet[0] = kMagic0;
+        packet[1] = kMagic1;
+        packet[2] = kProtocolVersion;
+        packet[3] = kSetVariable;
+        writeU16LE(packet + 4, static_cast<uint16_t>(payloadLength));
+        writeU16LE(packet + kHeaderSize, sequence_);
+        std::memcpy(packet + kHeaderSize + 2, payload, payloadLength);
+        const size_t crcOffset = kHeaderSize + 2 + payloadLength;
+        uint16_t crc = crc16CcittFalse(packet, crcOffset);
+        writeU16LE(packet + crcOffset, crc);
+        const size_t total = crcOffset + kCrcSize;
+        sequence_++;
+        return transport_.write(packet, total);
+    }
+
+    static void writeU16LE(uint8_t* out, uint16_t value) {
+        out[0] = static_cast<uint8_t>(value & 0xFF);
+        out[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+    }
+
+    static void writeU32LE(uint8_t* out, uint32_t value) {
+        out[0] = static_cast<uint8_t>(value & 0xFF);
+        out[1] = static_cast<uint8_t>((value >> 8) & 0xFF);
+        out[2] = static_cast<uint8_t>((value >> 16) & 0xFF);
+        out[3] = static_cast<uint8_t>((value >> 24) & 0xFF);
+    }
+
+    static uint16_t crc16CcittFalse(const uint8_t* data, size_t length) {
+        uint16_t crc = 0xFFFF;
+        for (size_t index = 0; index < length; index++) {
+            crc ^= static_cast<uint16_t>(data[index]) << 8;
+            for (uint8_t bit = 0; bit < 8; bit++) {
+                crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021) : static_cast<uint16_t>(crc << 1);
+            }
+        }
+        return crc;
+    }
+
+    EVETransport& transport_;
+    uint16_t sequence_;
+};
+
+} // namespace EVE
+`;
+}
